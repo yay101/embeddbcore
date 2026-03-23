@@ -29,8 +29,9 @@ type FieldOffset struct {
 type StructLayout struct {
 	FieldOffsets map[byte]FieldOffset
 	Size         uintptr
-	Hash         string // Hash of the struct layout to detect changes
-	PrimaryKey   byte   // Byte key of the primary key field (if any)
+	Hash         string       // Hash of the struct layout to detect changes
+	PrimaryKey   byte         // Byte key of the primary key field (255 = none)
+	PKType       reflect.Kind // Type of the PK field (0 = no PK)
 }
 
 // ComputeStructLayout analyzes the provided struct and returns a StructLayout
@@ -46,6 +47,7 @@ func ComputeStructLayout(data interface{}) (*StructLayout, error) {
 	layout := &StructLayout{
 		FieldOffsets: make(map[byte]FieldOffset),
 		PrimaryKey:   255, // Use 255 as sentinel value meaning "no primary key"
+		PKType:       0,   // 0 means no primary key (reflect.Kind(0) is invalid)
 	}
 
 	byteKey := byte(0)
@@ -79,11 +81,19 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 		fieldPath := append([]string{}, parentPath...)
 		fieldPath = append(fieldPath, field.Name)
 
-		// Check for primary key tag (handles comma-separated values like "id,primary")
+		// Check for db tag
 		dbTag := field.Tag.Get("db")
+
+		// Skip fields explicitly marked with "-"
+		if dbTag == "-" {
+			continue
+		}
+
+		// Check for primary key tag (handles comma-separated values like "id,primary")
 		isPrimary := strings.Contains(dbTag, "id") || strings.Contains(dbTag, "primary")
 		if isPrimary {
 			layout.PrimaryKey = *byteKey
+			layout.PKType = field.Type.Kind()
 		}
 
 		// Check for unique tag (handles comma-separated values like "unique,index")
