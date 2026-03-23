@@ -1,4 +1,4 @@
-package embedcore
+package embeddbcore
 
 import (
 	"fmt"
