@@ -3,6 +3,7 @@ package embeddbcore
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 	"unsafe"
@@ -151,56 +152,159 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 //
 // Deprecated: internal use only. This function will be made private in a future release.
 func GetFieldValue(data interface{}, offset FieldOffset) (interface{}, error) {
-	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
-	fieldPtr := unsafe.Add(ptr, offset.Offset)
-
 	switch offset.Type {
 	case reflect.Int:
-		return *(*int)(fieldPtr), nil
+		return GetIntField(data, offset), nil
 	case reflect.Int8:
-		return *(*int8)(fieldPtr), nil
+		return GetInt8Field(data, offset), nil
 	case reflect.Int16:
-		return *(*int16)(fieldPtr), nil
+		return GetInt16Field(data, offset), nil
 	case reflect.Int32:
-		return *(*int32)(fieldPtr), nil
+		return GetInt32Field(data, offset), nil
 	case reflect.Int64:
-		return *(*int64)(fieldPtr), nil
+		return GetInt64Field(data, offset), nil
 	case reflect.Uint:
-		return *(*uint)(fieldPtr), nil
+		return GetUintField(data, offset), nil
 	case reflect.Uint8:
-		return *(*uint8)(fieldPtr), nil
+		return GetUint8Field(data, offset), nil
 	case reflect.Uint16:
-		return *(*uint16)(fieldPtr), nil
+		return GetUint16Field(data, offset), nil
 	case reflect.Uint32:
-		return *(*uint32)(fieldPtr), nil
+		return GetUint32Field(data, offset), nil
 	case reflect.Uint64:
-		return *(*uint64)(fieldPtr), nil
+		return GetUint64Field(data, offset), nil
 	case reflect.Float32:
-		return *(*float32)(fieldPtr), nil
+		return GetFloat32Field(data, offset), nil
 	case reflect.Float64:
-		return *(*float64)(fieldPtr), nil
+		return GetFloat64Field(data, offset), nil
 	case reflect.Bool:
-		return *(*bool)(fieldPtr), nil
+		return GetBoolField(data, offset), nil
 	case reflect.String:
-		// Strings need special handling since they're a reference type
-		strHeader := (*reflect.StringHeader)(fieldPtr)
-		if strHeader.Len == 0 {
-			return "", nil
-		}
-		return *(*string)(fieldPtr), nil
+		return GetStringField(data, offset), nil
 	case reflect.Struct:
-		// For embedded structs, return a pointer to the struct
-		// Check if it's time.Time
 		if offset.IsTime {
-			return *(*time.Time)(fieldPtr), nil
+			return GetTimeField(data, offset), nil
 		}
-		return fieldPtr, nil
-	case reflect.Slice:
-		// Return the slice header pointer so we can iterate over elements
-		// The slice header contains: ptr, len, cap
-		return fieldPtr, nil
+		return nil, fmt.Errorf("unsupported struct field type: %v", offset.Type)
 	default:
 		return nil, fmt.Errorf("unsupported field type: %v", offset.Type)
+	}
+}
+
+// Type-specific getters that avoid interface{} allocation
+func GetIntField(data interface{}, offset FieldOffset) int {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*int)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetInt8Field(data interface{}, offset FieldOffset) int8 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*int8)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetInt16Field(data interface{}, offset FieldOffset) int16 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*int16)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetInt32Field(data interface{}, offset FieldOffset) int32 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*int32)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetInt64Field(data interface{}, offset FieldOffset) int64 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*int64)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUintField(data interface{}, offset FieldOffset) uint {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*uint)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUint8Field(data interface{}, offset FieldOffset) uint8 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*uint8)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUint16Field(data interface{}, offset FieldOffset) uint16 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*uint16)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUint32Field(data interface{}, offset FieldOffset) uint32 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*uint32)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUint64Field(data interface{}, offset FieldOffset) uint64 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*uint64)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetFloat32Field(data interface{}, offset FieldOffset) float32 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*float32)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetFloat64Field(data interface{}, offset FieldOffset) float64 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*float64)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetBoolField(data interface{}, offset FieldOffset) bool {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*bool)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetStringField(data interface{}, offset FieldOffset) string {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*string)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetTimeField(data interface{}, offset FieldOffset) time.Time {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*time.Time)(unsafe.Add(ptr, offset.Offset))
+}
+
+// GetFieldAsString returns a string representation of a field value without interface{} allocation
+func GetFieldAsString(data interface{}, offset FieldOffset) string {
+	switch offset.Type {
+	case reflect.Int:
+		return strconv.FormatInt(int64(GetIntField(data, offset)), 10)
+	case reflect.Int8:
+		return strconv.FormatInt(int64(GetInt8Field(data, offset)), 10)
+	case reflect.Int16:
+		return strconv.FormatInt(int64(GetInt16Field(data, offset)), 10)
+	case reflect.Int32:
+		return strconv.FormatInt(int64(GetInt32Field(data, offset)), 10)
+	case reflect.Int64:
+		return strconv.FormatInt(GetInt64Field(data, offset), 10)
+	case reflect.Uint:
+		return strconv.FormatUint(uint64(GetUintField(data, offset)), 10)
+	case reflect.Uint8:
+		return strconv.FormatUint(uint64(GetUint8Field(data, offset)), 10)
+	case reflect.Uint16:
+		return strconv.FormatUint(uint64(GetUint16Field(data, offset)), 10)
+	case reflect.Uint32:
+		return strconv.FormatUint(uint64(GetUint32Field(data, offset)), 10)
+	case reflect.Uint64:
+		return strconv.FormatUint(GetUint64Field(data, offset), 10)
+	case reflect.Float32:
+		return strconv.FormatFloat(float64(GetFloat32Field(data, offset)), 'f', -1, 32)
+	case reflect.Float64:
+		return strconv.FormatFloat(GetFloat64Field(data, offset), 'f', -1, 64)
+	case reflect.Bool:
+		return strconv.FormatBool(GetBoolField(data, offset))
+	case reflect.String:
+		return GetStringField(data, offset)
+	case reflect.Struct:
+		if offset.IsTime {
+			return strconv.FormatInt(GetTimeField(data, offset).Unix(), 10)
+		}
+		return ""
+	default:
+		return ""
 	}
 }
 
