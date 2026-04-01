@@ -267,6 +267,11 @@ func GetTimeField(data interface{}, offset FieldOffset) time.Time {
 	return *(*time.Time)(unsafe.Add(ptr, offset.Offset))
 }
 
+func GetStringSlice(data interface{}, offset FieldOffset) []string {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]string)(unsafe.Add(ptr, offset.Offset))
+}
+
 // GetFieldAsString returns a string representation of a field value without interface{} allocation
 func GetFieldAsString(data interface{}, offset FieldOffset) string {
 	switch offset.Type {
@@ -449,6 +454,18 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			return fmt.Errorf("unsupported struct field type: %v", offset.Type)
 		}
 	case reflect.Slice:
+		if strSlice, ok := value.([]string); ok && offset.SliceElem.Kind() == reflect.String {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(strSlice)
+			sliceHeader.Cap = len(strSlice)
+			if len(strSlice) == 0 {
+				break
+			}
+			data := make([]string, len(strSlice))
+			copy(data, strSlice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
 		sliceVal, ok := value.([]interface{})
 		if !ok {
 			return fmt.Errorf("cannot convert %T to slice", value)

@@ -85,3 +85,30 @@ func DecodeFloat64(data []byte) (float64, []byte, error) {
 	}
 	return math.Float64frombits(bits), remaining, nil
 }
+
+func EncodeSlice(buffer []byte, value []string) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, s := range value {
+		buffer = EncodeString(buffer, s)
+	}
+	return buffer
+}
+
+func DecodeSlice(data []byte) ([]string, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, errors.New("invalid slice length")
+	}
+	data = data[n:]
+
+	result := make([]string, 0, length)
+	for i := uint64(0); i < length; i++ {
+		s, remaining, err := DecodeString(data)
+		if err != nil {
+			return result, data, err
+		}
+		result = append(result, s)
+		data = remaining
+	}
+	return result, data, nil
+}
