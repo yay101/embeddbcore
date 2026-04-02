@@ -288,6 +288,11 @@ func GetStringSlice(data interface{}, offset FieldOffset) []string {
 	return *(*[]string)(unsafe.Add(ptr, offset.Offset))
 }
 
+func GetIntSlice(data interface{}, offset FieldOffset) []int {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]int)(unsafe.Add(ptr, offset.Offset))
+}
+
 // GetFieldAsString returns a string representation of a field value without interface{} allocation
 func GetFieldAsString(data interface{}, offset FieldOffset) string {
 	switch offset.Type {
@@ -479,6 +484,18 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			}
 			data := make([]string, len(strSlice))
 			copy(data, strSlice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if intSlice, ok := value.([]int); ok && offset.SliceElem.Kind() == reflect.Int {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(intSlice)
+			sliceHeader.Cap = len(intSlice)
+			if len(intSlice) == 0 {
+				break
+			}
+			data := make([]int, len(intSlice))
+			copy(data, intSlice)
 			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
 			break
 		}

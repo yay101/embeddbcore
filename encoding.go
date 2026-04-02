@@ -94,6 +94,14 @@ func EncodeSlice(buffer []byte, value []string) []byte {
 	return buffer
 }
 
+func EncodeIntSlice(buffer []byte, value []int) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeVarint(buffer, int64(n))
+	}
+	return buffer
+}
+
 func DecodeSlice(data []byte) ([]string, []byte, error) {
 	length, n := binary.Uvarint(data)
 	if n <= 0 {
@@ -108,6 +116,25 @@ func DecodeSlice(data []byte) ([]string, []byte, error) {
 			return result, data, err
 		}
 		result = append(result, s)
+		data = remaining
+	}
+	return result, data, nil
+}
+
+func DecodeIntSlice(data []byte) ([]int, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, errors.New("invalid slice length")
+	}
+	data = data[n:]
+
+	result := make([]int, 0, length)
+	for i := uint64(0); i < length; i++ {
+		val, remaining, err := DecodeVarint(data)
+		if err != nil {
+			return result, data, err
+		}
+		result = append(result, int(val))
 		data = remaining
 	}
 	return result, data, nil
