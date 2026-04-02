@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	ValueStartMarker byte = 0x1E
-	ValueEndMarker   byte = 0x1F
+	ValueStartMarker   byte = 0x1E
+	ValueEndMarker     byte = 0x1F
+	SliceElementMarker byte = 0x1D
 )
 
 func EncodeVarint(buffer []byte, value int64) []byte {

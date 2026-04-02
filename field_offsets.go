@@ -41,6 +41,9 @@ type StructLayout struct {
 // Deprecated: internal use only. This function will be made private in a future release.
 func ComputeStructLayout(data interface{}) (*StructLayout, error) {
 	t := reflect.TypeOf(data)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
 	if t.Kind() != reflect.Struct {
 		return nil, fmt.Errorf("expected struct type, got %v", t.Kind())
 	}
@@ -475,6 +478,37 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			return fmt.Errorf("unsupported struct field type: %v", offset.Type)
 		}
 	case reflect.Slice:
+		// Handle []struct{} slices using reflection
+		if offset.SliceElem.Kind() == reflect.Struct {
+			sliceVal := reflect.ValueOf(value)
+			if !sliceVal.IsValid() || sliceVal.Kind() != reflect.Slice {
+				return fmt.Errorf("cannot convert %T to slice of structs", value)
+			}
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			elemType := offset.SliceElem
+			sliceLen := sliceVal.Len()
+			sliceHeader.Len = sliceLen
+			sliceHeader.Cap = sliceLen
+			if sliceLen == 0 {
+				break
+			}
+			sliceSize := elemType.Size()
+			data := make([]byte, sliceLen*int(sliceSize))
+			for i := 0; i < sliceLen; i++ {
+				elemPtr := unsafe.Pointer(uintptr(unsafe.Pointer(&data[0])) + uintptr(i)*uintptr(sliceSize))
+				elemVal := sliceVal.Index(i)
+				if elemVal.Kind() == reflect.Ptr {
+					elemVal = elemVal.Elem()
+				}
+				if elemVal.IsValid() && elemVal.Kind() == reflect.Struct {
+					srcPtr := unsafe.Pointer(elemVal.UnsafeAddr())
+					srcData := unsafe.Slice((*byte)(srcPtr), elemType.Size())
+					copy(unsafe.Slice((*byte)(elemPtr), elemType.Size()), srcData)
+				}
+			}
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
 		if strSlice, ok := value.([]string); ok && offset.SliceElem.Kind() == reflect.String {
 			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
 			sliceHeader.Len = len(strSlice)
