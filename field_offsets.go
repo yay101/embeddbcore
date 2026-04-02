@@ -80,7 +80,15 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 
 		// Create the complete field path for nested structs
 		fieldPath := append([]string{}, parentPath...)
-		fieldPath = append(fieldPath, field.Name)
+
+		// Check if this is an anonymous/embedded struct field
+		isAnonymous := field.Anonymous
+
+		// For anonymous embedded structs, don't add the field name to the path
+		// This allows promoted fields to be named correctly (e.g., "City" instead of "EmbeddedAddress.City")
+		if !isAnonymous {
+			fieldPath = append(fieldPath, field.Name)
+		}
 
 		// Check for db tag
 		dbTag := field.Tag.Get("db")
@@ -137,8 +145,16 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 			*byteKey++
 
 			// Recursively process the nested struct fields
-			// Pass the absolute offset so nested fields have correct offsets from root
-			computeFieldOffsets(field.Type, absoluteOffset, byteKey, fieldPath, layout)
+			// For anonymous embedded structs, pass the parent's path to promote fields
+			// For named nested structs, pass fieldPath to prefix the nested field names
+			anonymous := field.Anonymous
+			var recursivePath []string
+			if anonymous {
+				recursivePath = parentPath
+			} else {
+				recursivePath = fieldPath
+			}
+			computeFieldOffsets(field.Type, absoluteOffset, byteKey, recursivePath, layout)
 		} else {
 			// Store regular field
 			layout.FieldOffsets[*byteKey] = fieldOffset
