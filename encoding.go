@@ -71,6 +71,25 @@ func DecodeString(data []byte) (string, []byte, error) {
 	return val, data, nil
 }
 
+func EncodeBytes(buffer []byte, value []byte) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	return append(buffer, value...)
+}
+
+func DecodeBytes(data []byte) ([]byte, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, errors.New("invalid bytes length")
+	}
+	data = data[n:]
+	if len(data) < int(length) {
+		return nil, data, errors.New("bytes data too short")
+	}
+	val := data[:length]
+	data = data[length:]
+	return val, data, nil
+}
+
 func DecodeBool(data []byte) (bool, []byte, error) {
 	if len(data) < 1 {
 		return false, data, errors.New("bool data too short")

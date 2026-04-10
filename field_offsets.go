@@ -23,6 +23,7 @@ type FieldOffset struct {
 	Parent     []string     // For nested structs
 	IsTime     bool         // True if the field is time.Time
 	IsSlice    bool         // True if the field is a slice
+	IsBytes    bool         // True if the field is []byte
 	SliceElem  reflect.Type // Element type of the slice
 }
 
@@ -117,8 +118,13 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 		// Check if this is a slice field
 		isSliceField := field.Type.Kind() == reflect.Slice
 		var sliceElem reflect.Type
+		isBytesField := false
 		if isSliceField {
 			sliceElem = field.Type.Elem()
+			// Check if it's []byte (uint8 slice)
+			if sliceElem.Kind() == reflect.Uint8 {
+				isBytesField = true
+			}
 		}
 
 		// Create field offset info
@@ -135,6 +141,7 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 			Parent:    parentPath,
 			IsTime:    isTimeField,
 			IsSlice:   isSliceField,
+			IsBytes:   isBytesField,
 			SliceElem: sliceElem,
 		}
 
@@ -294,6 +301,44 @@ func GetStringSlice(data interface{}, offset FieldOffset) []string {
 func GetIntSlice(data interface{}, offset FieldOffset) []int {
 	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
 	return *(*[]int)(unsafe.Add(ptr, offset.Offset))
+}
+
+// GetBytesField reads a []byte field directly from struct memory
+func GetBytesField(data interface{}, offset FieldOffset) ([]byte, error) {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	fieldPtr := unsafe.Add(ptr, offset.Offset)
+
+	sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+	if sliceHeader.Len == 0 {
+		return nil, nil
+	}
+
+	bytesPtr := unsafe.Pointer(sliceHeader.Data)
+	bytes := make([]byte, sliceHeader.Len)
+	copy(bytes, (*[8192]byte)(bytesPtr)[:sliceHeader.Len])
+	return bytes, nil
+}
+
+// SetBytesField sets a []byte field directly in struct memory
+func SetBytesField(data interface{}, offset FieldOffset, value []byte) error {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	fieldPtr := unsafe.Add(ptr, offset.Offset)
+
+	sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+	if len(value) == 0 {
+		sliceHeader.Data = 0
+		sliceHeader.Len = 0
+		sliceHeader.Cap = 0
+		return nil
+	}
+
+	bytesCopy := make([]byte, len(value))
+	copy(bytesCopy, value)
+
+	sliceHeader.Data = uintptr(unsafe.Pointer(&bytesCopy[0]))
+	sliceHeader.Len = len(value)
+	sliceHeader.Cap = len(value)
+	return nil
 }
 
 // GetFieldAsString returns a string representation of a field value without interface{} allocation
@@ -478,6 +523,26 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			return fmt.Errorf("unsupported struct field type: %v", offset.Type)
 		}
 	case reflect.Slice:
+		// Handle []byte specially
+		if offset.IsBytes {
+			bytesVal, ok := value.([]byte)
+			if !ok {
+				return fmt.Errorf("cannot convert %T to []byte", value)
+			}
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			if len(bytesVal) == 0 {
+				sliceHeader.Data = 0
+				sliceHeader.Len = 0
+				sliceHeader.Cap = 0
+				break
+			}
+			bytesCopy := make([]byte, len(bytesVal))
+			copy(bytesCopy, bytesVal)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&bytesCopy[0]))
+			sliceHeader.Len = len(bytesVal)
+			sliceHeader.Cap = len(bytesVal)
+			break
+		}
 		// Handle []struct{} slices using reflection
 		if offset.SliceElem.Kind() == reflect.Struct {
 			sliceVal := reflect.ValueOf(value)
