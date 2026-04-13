@@ -374,7 +374,7 @@ func GetFieldAsString(data interface{}, offset FieldOffset) string {
 		return GetStringField(data, offset)
 	case reflect.Struct:
 		if offset.IsTime {
-			return strconv.FormatInt(GetTimeField(data, offset).Unix(), 10)
+			return strconv.FormatInt(GetTimeField(data, offset).UnixNano(), 10)
 		}
 		return ""
 	default:
