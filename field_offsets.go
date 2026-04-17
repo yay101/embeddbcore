@@ -9,37 +9,30 @@ import (
 	"unsafe"
 )
 
-// FieldOffset stores the offset and type information for a field in a struct
 type FieldOffset struct {
 	Name       string
-	Offset     uintptr // Absolute offset from the start of the root struct
+	Offset     uintptr
 	Type       reflect.Kind
 	Size       uintptr
 	Primary    bool
 	Unique     bool
-	Key        byte
 	IsStruct   bool
 	StructType reflect.Type
-	Parent     []string     // For nested structs
-	IsTime     bool         // True if the field is time.Time
-	IsSlice    bool         // True if the field is a slice
-	IsBytes    bool         // True if the field is []byte
-	SliceElem  reflect.Type // Element type of the slice
+	Parent     []string
+	IsTime     bool
+	IsSlice    bool
+	IsBytes    bool
+	SliceElem  reflect.Type
 }
 
-// StructLayout contains the mapping of field byte keys to their offsets
 type StructLayout struct {
-	FieldOffsets map[byte]FieldOffset
-	Size         uintptr
-	Hash         string       // Hash of the struct layout to detect changes
-	PrimaryKey   byte         // Byte key of the primary key field (255 = none)
-	PKType       reflect.Kind // Type of the PK field (0 = no PK)
+	Fields        []FieldOffset
+	Size          uintptr
+	SchemaVersion uint32
+	PrimaryKey    string
+	PKType        reflect.Kind
 }
 
-// ComputeStructLayout analyzes the provided struct and returns a StructLayout
-// containing offsets for all fields, used for direct memory access
-//
-// Deprecated: internal use only. This function will be made private in a future release.
 func ComputeStructLayout(data interface{}) (*StructLayout, error) {
 	t := reflect.TypeOf(data)
 	if t.Kind() == reflect.Ptr {
@@ -50,85 +43,79 @@ func ComputeStructLayout(data interface{}) (*StructLayout, error) {
 	}
 
 	layout := &StructLayout{
-		FieldOffsets: make(map[byte]FieldOffset),
-		PrimaryKey:   255, // Use 255 as sentinel value meaning "no primary key"
-		PKType:       0,   // 0 means no primary key (reflect.Kind(0) is invalid)
+		PKType: 0,
 	}
 
-	byteKey := byte(0)
-	computeFieldOffsets(t, 0, &byteKey, []string{}, layout)
+	computeFieldOffsets(t, 0, []string{}, layout)
 
-	// Generate a simple hash of the struct layout for checking compatibility
-	var hashBuilder strings.Builder
-	for i := byte(0); i < byteKey; i++ {
-		if field, exists := layout.FieldOffsets[i]; exists {
-			hashBuilder.WriteString(fmt.Sprintf("%s:%d:%v,", field.Name, field.Offset, field.Type))
-		}
-	}
-	layout.Hash = hashBuilder.String()
+	hash := ComputeSchemaHash(layout.Fields)
+	layout.SchemaVersion = hash
+
 	layout.Size = t.Size()
 
 	return layout, nil
 }
 
-// computeFieldOffsets recursively computes the offset of each field in the struct
-// baseOffset is the accumulated offset from the root struct to the current struct
-func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, parentPath []string, layout *StructLayout) {
+func ComputeSchemaHash(fields []FieldOffset) uint32 {
+	var h uint32 = 0x811c9dc5
+	for _, f := range fields {
+		if f.IsStruct && !f.IsTime {
+			continue
+		}
+		for _, c := range f.Name {
+			h ^= uint32(c)
+			h *= 0x01000193
+		}
+		h ^= 0x2F
+		h *= 0x01000193
+		h ^= uint32(f.Type)
+		h *= 0x01000193
+	}
+	return h
+}
+
+func computeFieldOffsets(t reflect.Type, baseOffset uintptr, parentPath []string, layout *StructLayout) {
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
 
-		// Skip unexported fields
 		if !field.IsExported() {
 			continue
 		}
 
-		// Create the complete field path for nested structs
 		fieldPath := append([]string{}, parentPath...)
 
-		// Check if this is an anonymous/embedded struct field
 		isAnonymous := field.Anonymous
 
-		// For anonymous embedded structs, don't add the field name to the path
-		// This allows promoted fields to be named correctly (e.g., "City" instead of "EmbeddedAddress.City")
 		if !isAnonymous {
 			fieldPath = append(fieldPath, field.Name)
 		}
 
-		// Check for db tag
 		dbTag := field.Tag.Get("db")
 
-		// Skip fields explicitly marked with "-"
 		if dbTag == "-" {
 			continue
 		}
 
-		// Check for primary key tag (handles comma-separated values like "id,primary")
 		isPrimary := strings.Contains(dbTag, "id") || strings.Contains(dbTag, "primary")
-		if isPrimary {
-			layout.PrimaryKey = *byteKey
+		if isPrimary && layout.PrimaryKey == "" {
+			layout.PrimaryKey = strings.Join(fieldPath, ".")
 			layout.PKType = field.Type.Kind()
 		}
 
-		// Check for unique tag (handles comma-separated values like "unique,index")
 		isUnique := strings.Contains(dbTag, "unique")
 
-		// Check if this is a time.Time field
 		isTimeField := field.Type.PkgPath() == "time" && field.Type.Name() == "Time"
 
-		// Check if this is a slice field
 		isSliceField := field.Type.Kind() == reflect.Slice
 		var sliceElem reflect.Type
 		isBytesField := false
 		if isSliceField {
 			sliceElem = field.Type.Elem()
-			// Check if it's []byte (uint8 slice)
 			if sliceElem.Kind() == reflect.Uint8 {
 				isBytesField = true
 			}
 		}
 
-		// Create field offset info
-		// Calculate absolute offset from root struct by adding base offset
 		absoluteOffset := baseOffset + field.Offset
 		fieldOffset := FieldOffset{
 			Name:      strings.Join(fieldPath, "."),
@@ -137,7 +124,6 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 			Size:      field.Type.Size(),
 			Primary:   isPrimary,
 			Unique:    isUnique,
-			Key:       *byteKey,
 			Parent:    parentPath,
 			IsTime:    isTimeField,
 			IsSlice:   isSliceField,
@@ -145,18 +131,12 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 			SliceElem: sliceElem,
 		}
 
-		// Handle nested structs
 		if field.Type.Kind() == reflect.Struct {
 			fieldOffset.IsStruct = true
 			fieldOffset.StructType = field.Type
 
-			// Store the struct field itself
-			layout.FieldOffsets[*byteKey] = fieldOffset
-			*byteKey++
+			layout.Fields = append(layout.Fields, fieldOffset)
 
-			// Recursively process the nested struct fields
-			// For anonymous embedded structs, pass the parent's path to promote fields
-			// For named nested structs, pass fieldPath to prefix the nested field names
 			anonymous := field.Anonymous
 			var recursivePath []string
 			if anonymous {
@@ -164,19 +144,13 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, byteKey *byte, pare
 			} else {
 				recursivePath = fieldPath
 			}
-			computeFieldOffsets(field.Type, absoluteOffset, byteKey, recursivePath, layout)
+			computeFieldOffsets(field.Type, absoluteOffset, recursivePath, layout)
 		} else {
-			// Store regular field
-			layout.FieldOffsets[*byteKey] = fieldOffset
-			*byteKey++
+			layout.Fields = append(layout.Fields, fieldOffset)
 		}
 	}
 }
 
-// GetFieldValue uses the field offset to directly read a field's value from the struct
-// This avoids reflection during database operations
-//
-// Deprecated: internal use only. This function will be made private in a future release.
 func GetFieldValue(data interface{}, offset FieldOffset) (interface{}, error) {
 	switch offset.Type {
 	case reflect.Int:
@@ -217,7 +191,6 @@ func GetFieldValue(data interface{}, offset FieldOffset) (interface{}, error) {
 	}
 }
 
-// Type-specific getters that avoid interface{} allocation
 func GetIntField(data interface{}, offset FieldOffset) int {
 	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
 	return *(*int)(unsafe.Add(ptr, offset.Offset))
@@ -303,7 +276,6 @@ func GetIntSlice(data interface{}, offset FieldOffset) []int {
 	return *(*[]int)(unsafe.Add(ptr, offset.Offset))
 }
 
-// GetBytesField reads a []byte field directly from struct memory
 func GetBytesField(data interface{}, offset FieldOffset) ([]byte, error) {
 	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
 	fieldPtr := unsafe.Add(ptr, offset.Offset)
@@ -319,7 +291,6 @@ func GetBytesField(data interface{}, offset FieldOffset) ([]byte, error) {
 	return bytes, nil
 }
 
-// SetBytesField sets a []byte field directly in struct memory
 func SetBytesField(data interface{}, offset FieldOffset, value []byte) error {
 	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
 	fieldPtr := unsafe.Add(ptr, offset.Offset)
@@ -341,7 +312,6 @@ func SetBytesField(data interface{}, offset FieldOffset, value []byte) error {
 	return nil
 }
 
-// GetFieldAsString returns a string representation of a field value without interface{} allocation
 func GetFieldAsString(data interface{}, offset FieldOffset) string {
 	switch offset.Type {
 	case reflect.Int:
@@ -382,18 +352,12 @@ func GetFieldAsString(data interface{}, offset FieldOffset) string {
 	}
 }
 
-// SetFieldValue uses the field offset to directly set a field's value in the struct
-// This avoids reflection during database operations
-// Handles type conversions from decoded values (e.g., int64 -> int, uint64 -> uint32)
-//
-// Deprecated: internal use only. This function will be made private in a future release.
 func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) error {
 	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
 	fieldPtr := unsafe.Add(ptr, offset.Offset)
 
 	switch offset.Type {
 	case reflect.Int:
-		// Handle conversion from int64 (varint decode result)
 		switch v := value.(type) {
 		case int64:
 			*(*int)(fieldPtr) = int(v)
@@ -437,7 +401,6 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			return fmt.Errorf("cannot convert %T to int64", value)
 		}
 	case reflect.Uint:
-		// Handle conversion from uint64 (uvarint decode result)
 		switch v := value.(type) {
 		case uint64:
 			*(*uint)(fieldPtr) = uint(v)
@@ -511,7 +474,6 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			return fmt.Errorf("cannot convert %T to string", value)
 		}
 	case reflect.Struct:
-		// Check if this is a time.Time field
 		if offset.IsTime {
 			switch v := value.(type) {
 			case time.Time:
@@ -523,7 +485,6 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			return fmt.Errorf("unsupported struct field type: %v", offset.Type)
 		}
 	case reflect.Slice:
-		// Handle []byte specially
 		if offset.IsBytes {
 			bytesVal, ok := value.([]byte)
 			if !ok {
@@ -543,7 +504,6 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			sliceHeader.Cap = len(bytesVal)
 			break
 		}
-		// Handle []struct{} slices using reflection
 		if offset.SliceElem.Kind() == reflect.Struct {
 			sliceVal := reflect.ValueOf(value)
 			if !sliceVal.IsValid() || sliceVal.Kind() != reflect.Slice {
