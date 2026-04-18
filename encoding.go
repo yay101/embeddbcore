@@ -204,6 +204,60 @@ func DecodeTime(data []byte) (int64, []byte, error) {
 	return DecodeInt64(data)
 }
 
+func EncodeSlice(buffer []byte, value []string) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, s := range value {
+		buffer = EncodeString(buffer, s)
+	}
+	return buffer
+}
+
+func DecodeSlice(data []byte) ([]string, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]string, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var s string
+		var err error
+		s, data, err = DecodeString(data)
+		if err != nil {
+			break
+		}
+		result = append(result, s)
+	}
+	return result, data, nil
+}
+
+func EncodeIntSlice(buffer []byte, value []int) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeVarint(buffer, int64(n))
+	}
+	return buffer
+}
+
+func DecodeIntSlice(data []byte) ([]int, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]int, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v int64
+		var err error
+		v, data, err = DecodeVarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, int(v))
+	}
+	return result, data, nil
+}
+
 func EncodeIndexKeyUint(value uint64) []byte {
 	buf := make([]byte, 9)
 	buf[0] = KeyTypeUint
