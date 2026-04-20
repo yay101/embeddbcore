@@ -258,6 +258,303 @@ func DecodeIntSlice(data []byte) ([]int, []byte, error) {
 	return result, data, nil
 }
 
+func EncodeInt8Slice(buffer []byte, value []int8) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeVarint(buffer, int64(n))
+	}
+	return buffer
+}
+
+func DecodeInt8Slice(data []byte) ([]int8, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]int8, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v int64
+		var err error
+		v, data, err = DecodeVarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, int8(v))
+	}
+	return result, data, nil
+}
+
+func EncodeInt16Slice(buffer []byte, value []int16) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeVarint(buffer, int64(n))
+	}
+	return buffer
+}
+
+func DecodeInt16Slice(data []byte) ([]int16, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]int16, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v int64
+		var err error
+		v, data, err = DecodeVarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, int16(v))
+	}
+	return result, data, nil
+}
+
+func EncodeInt32Slice(buffer []byte, value []int32) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeVarint(buffer, int64(n))
+	}
+	return buffer
+}
+
+func DecodeInt32Slice(data []byte) ([]int32, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]int32, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v int64
+		var err error
+		v, data, err = DecodeVarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, int32(v))
+	}
+	return result, data, nil
+}
+
+func EncodeInt64Slice(buffer []byte, value []int64) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeVarint(buffer, n)
+	}
+	return buffer
+}
+
+func DecodeInt64Slice(data []byte) ([]int64, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]int64, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v int64
+		var err error
+		v, data, err = DecodeVarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, v)
+	}
+	return result, data, nil
+}
+
+func EncodeUintSlice(buffer []byte, value []uint) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeUvarint(buffer, uint64(n))
+	}
+	return buffer
+}
+
+func DecodeUintSlice(data []byte) ([]uint, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]uint, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v uint64
+		var err error
+		v, data, err = DecodeUvarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, uint(v))
+	}
+	return result, data, nil
+}
+
+func EncodeUint16Slice(buffer []byte, value []uint16) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeUvarint(buffer, uint64(n))
+	}
+	return buffer
+}
+
+func DecodeUint16Slice(data []byte) ([]uint16, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]uint16, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v uint64
+		var err error
+		v, data, err = DecodeUvarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, uint16(v))
+	}
+	return result, data, nil
+}
+
+func EncodeUint32Slice(buffer []byte, value []uint32) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeUvarint(buffer, uint64(n))
+	}
+	return buffer
+}
+
+func DecodeUint32Slice(data []byte) ([]uint32, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]uint32, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v uint64
+		var err error
+		v, data, err = DecodeUvarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, uint32(v))
+	}
+	return result, data, nil
+}
+
+func EncodeUint64Slice(buffer []byte, value []uint64) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeUvarint(buffer, n)
+	}
+	return buffer
+}
+
+func DecodeUint64Slice(data []byte) ([]uint64, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]uint64, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v uint64
+		var err error
+		v, data, err = DecodeUvarint(data)
+		if err != nil {
+			break
+		}
+		result = append(result, v)
+	}
+	return result, data, nil
+}
+
+func EncodeFloat32Slice(buffer []byte, value []float32) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeFloat64(buffer, float64(n))
+	}
+	return buffer
+}
+
+func DecodeFloat32Slice(data []byte) ([]float32, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]float32, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v float64
+		var err error
+		v, data, err = DecodeFloat64(data)
+		if err != nil {
+			break
+		}
+		result = append(result, float32(v))
+	}
+	return result, data, nil
+}
+
+func EncodeFloat64Slice(buffer []byte, value []float64) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeFloat64(buffer, n)
+	}
+	return buffer
+}
+
+func DecodeFloat64Slice(data []byte) ([]float64, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]float64, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v float64
+		var err error
+		v, data, err = DecodeFloat64(data)
+		if err != nil {
+			break
+		}
+		result = append(result, v)
+	}
+	return result, data, nil
+}
+
+func EncodeBoolSlice(buffer []byte, value []bool) []byte {
+	buffer = EncodeUvarint(buffer, uint64(len(value)))
+	for _, n := range value {
+		buffer = EncodeBool(buffer, n)
+	}
+	return buffer
+}
+
+func DecodeBoolSlice(data []byte) ([]bool, []byte, error) {
+	length, n := binary.Uvarint(data)
+	if n <= 0 {
+		return nil, data, ErrInvalidUvarint
+	}
+	data = data[n:]
+	result := make([]bool, 0, length)
+	for i := uint64(0); i < length && len(data) > 0; i++ {
+		var v bool
+		var err error
+		v, data, err = DecodeBool(data)
+		if err != nil {
+			break
+		}
+		result = append(result, v)
+	}
+	return result, data, nil
+}
+
 func EncodeIndexKeyUint(value uint64) []byte {
 	buf := make([]byte, 9)
 	buf[0] = KeyTypeUint

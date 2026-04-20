@@ -181,6 +181,43 @@ func GetFieldValue(data interface{}, offset FieldOffset) (interface{}, error) {
 		return GetBoolField(data, offset), nil
 	case reflect.String:
 		return GetStringField(data, offset), nil
+	case reflect.Slice:
+		if offset.IsBytes {
+			return GetBytesField(data, offset)
+		}
+		if offset.SliceElem != nil {
+			switch offset.SliceElem.Kind() {
+			case reflect.String:
+				return GetStringSlice(data, offset), nil
+			case reflect.Int:
+				return GetIntSlice(data, offset), nil
+			case reflect.Int8:
+				return GetInt8Slice(data, offset), nil
+			case reflect.Int16:
+				return GetInt16Slice(data, offset), nil
+			case reflect.Int32:
+				return GetInt32Slice(data, offset), nil
+			case reflect.Int64:
+				return GetInt64Slice(data, offset), nil
+			case reflect.Uint:
+				return GetUintSlice(data, offset), nil
+			case reflect.Uint16:
+				return GetUint16Slice(data, offset), nil
+			case reflect.Uint32:
+				return GetUint32Slice(data, offset), nil
+			case reflect.Uint64:
+				return GetUint64Slice(data, offset), nil
+			case reflect.Float32:
+				return GetFloat32Slice(data, offset), nil
+			case reflect.Float64:
+				return GetFloat64Slice(data, offset), nil
+			case reflect.Bool:
+				return GetBoolSlice(data, offset), nil
+			case reflect.Struct:
+				return GetSliceOfStructs(data, offset), nil
+			}
+		}
+		return nil, fmt.Errorf("unsupported slice field type: %v", offset.Type)
 	case reflect.Struct:
 		if offset.IsTime {
 			return GetTimeField(data, offset), nil
@@ -276,6 +313,82 @@ func GetIntSlice(data interface{}, offset FieldOffset) []int {
 	return *(*[]int)(unsafe.Add(ptr, offset.Offset))
 }
 
+func GetInt8Slice(data interface{}, offset FieldOffset) []int8 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]int8)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetInt16Slice(data interface{}, offset FieldOffset) []int16 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]int16)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetInt32Slice(data interface{}, offset FieldOffset) []int32 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]int32)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetInt64Slice(data interface{}, offset FieldOffset) []int64 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]int64)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUintSlice(data interface{}, offset FieldOffset) []uint {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]uint)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUint16Slice(data interface{}, offset FieldOffset) []uint16 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]uint16)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUint32Slice(data interface{}, offset FieldOffset) []uint32 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]uint32)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetUint64Slice(data interface{}, offset FieldOffset) []uint64 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]uint64)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetFloat32Slice(data interface{}, offset FieldOffset) []float32 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]float32)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetFloat64Slice(data interface{}, offset FieldOffset) []float64 {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]float64)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetBoolSlice(data interface{}, offset FieldOffset) []bool {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	return *(*[]bool)(unsafe.Add(ptr, offset.Offset))
+}
+
+func GetSliceOfStructs(data interface{}, offset FieldOffset) interface{} {
+	rootVal := reflect.ValueOf(data).Elem()
+	val := rootVal.FieldByName(offset.Name)
+	if len(offset.Parent) > 0 {
+		val = rootVal
+		for _, part := range offset.Parent {
+			val = val.FieldByName(part)
+			if !val.IsValid() {
+				return nil
+			}
+		}
+		fieldParts := strings.Split(offset.Name, ".")
+		lastPart := fieldParts[len(fieldParts)-1]
+		val = val.FieldByName(lastPart)
+	}
+	if !val.IsValid() || val.IsNil() {
+		return nil
+	}
+	return val.Interface()
+}
+
 func GetBytesField(data interface{}, offset FieldOffset) ([]byte, error) {
 	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
 	fieldPtr := unsafe.Add(ptr, offset.Offset)
@@ -346,6 +459,8 @@ func GetFieldAsString(data interface{}, offset FieldOffset) string {
 		if offset.IsTime {
 			return strconv.FormatInt(GetTimeField(data, offset).UnixNano(), 10)
 		}
+		return ""
+	case reflect.Slice:
 		return ""
 	default:
 		return ""
@@ -555,6 +670,138 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 			}
 			data := make([]int, len(intSlice))
 			copy(data, intSlice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if int8Slice, ok := value.([]int8); ok && offset.SliceElem.Kind() == reflect.Int8 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(int8Slice)
+			sliceHeader.Cap = len(int8Slice)
+			if len(int8Slice) == 0 {
+				break
+			}
+			data := make([]int8, len(int8Slice))
+			copy(data, int8Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if int16Slice, ok := value.([]int16); ok && offset.SliceElem.Kind() == reflect.Int16 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(int16Slice)
+			sliceHeader.Cap = len(int16Slice)
+			if len(int16Slice) == 0 {
+				break
+			}
+			data := make([]int16, len(int16Slice))
+			copy(data, int16Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if int32Slice, ok := value.([]int32); ok && offset.SliceElem.Kind() == reflect.Int32 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(int32Slice)
+			sliceHeader.Cap = len(int32Slice)
+			if len(int32Slice) == 0 {
+				break
+			}
+			data := make([]int32, len(int32Slice))
+			copy(data, int32Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if int64Slice, ok := value.([]int64); ok && offset.SliceElem.Kind() == reflect.Int64 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(int64Slice)
+			sliceHeader.Cap = len(int64Slice)
+			if len(int64Slice) == 0 {
+				break
+			}
+			data := make([]int64, len(int64Slice))
+			copy(data, int64Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if uintSlice, ok := value.([]uint); ok && offset.SliceElem.Kind() == reflect.Uint {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(uintSlice)
+			sliceHeader.Cap = len(uintSlice)
+			if len(uintSlice) == 0 {
+				break
+			}
+			data := make([]uint, len(uintSlice))
+			copy(data, uintSlice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if uint16Slice, ok := value.([]uint16); ok && offset.SliceElem.Kind() == reflect.Uint16 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(uint16Slice)
+			sliceHeader.Cap = len(uint16Slice)
+			if len(uint16Slice) == 0 {
+				break
+			}
+			data := make([]uint16, len(uint16Slice))
+			copy(data, uint16Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if uint32Slice, ok := value.([]uint32); ok && offset.SliceElem.Kind() == reflect.Uint32 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(uint32Slice)
+			sliceHeader.Cap = len(uint32Slice)
+			if len(uint32Slice) == 0 {
+				break
+			}
+			data := make([]uint32, len(uint32Slice))
+			copy(data, uint32Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if uint64Slice, ok := value.([]uint64); ok && offset.SliceElem.Kind() == reflect.Uint64 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(uint64Slice)
+			sliceHeader.Cap = len(uint64Slice)
+			if len(uint64Slice) == 0 {
+				break
+			}
+			data := make([]uint64, len(uint64Slice))
+			copy(data, uint64Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if float32Slice, ok := value.([]float32); ok && offset.SliceElem.Kind() == reflect.Float32 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(float32Slice)
+			sliceHeader.Cap = len(float32Slice)
+			if len(float32Slice) == 0 {
+				break
+			}
+			data := make([]float32, len(float32Slice))
+			copy(data, float32Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if float64Slice, ok := value.([]float64); ok && offset.SliceElem.Kind() == reflect.Float64 {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(float64Slice)
+			sliceHeader.Cap = len(float64Slice)
+			if len(float64Slice) == 0 {
+				break
+			}
+			data := make([]float64, len(float64Slice))
+			copy(data, float64Slice)
+			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
+			break
+		}
+		if boolSlice, ok := value.([]bool); ok && offset.SliceElem.Kind() == reflect.Bool {
+			sliceHeader := (*reflect.SliceHeader)(fieldPtr)
+			sliceHeader.Len = len(boolSlice)
+			sliceHeader.Cap = len(boolSlice)
+			if len(boolSlice) == 0 {
+				break
+			}
+			data := make([]bool, len(boolSlice))
+			copy(data, boolSlice)
 			sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
 			break
 		}
