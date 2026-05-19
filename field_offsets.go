@@ -1,6 +1,7 @@
 package embeddbcore
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -10,19 +11,24 @@ import (
 )
 
 type FieldOffset struct {
-	Name       string
-	Offset     uintptr
-	Type       reflect.Kind
-	Size       uintptr
-	Primary    bool
-	Unique     bool
-	IsStruct   bool
-	StructType reflect.Type
-	Parent     []string
-	IsTime     bool
-	IsSlice    bool
-	IsBytes    bool
-	SliceElem  reflect.Type
+	Name        string
+	Offset      uintptr
+	Type        reflect.Kind
+	Size        uintptr
+	Primary     bool
+	Unique      bool
+	IsStruct    bool
+	StructType  reflect.Type
+	Parent      []string
+	IsTime      bool
+	IsSlice     bool
+	IsBytes     bool
+	SliceElem   reflect.Type
+	IsMap       bool
+	MapKeyType  reflect.Type
+	MapValType  reflect.Type
+	MapType     reflect.Type
+	Encrypted   bool
 }
 
 type StructLayout struct {
@@ -103,6 +109,7 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, parentPath []string
 		}
 
 		isUnique := strings.Contains(dbTag, "unique")
+		isEncrypted := strings.Contains(dbTag, "encrypt")
 
 		isTimeField := field.Type.PkgPath() == "time" && field.Type.Name() == "Time"
 
@@ -116,6 +123,14 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, parentPath []string
 			}
 		}
 
+		isMapField := field.Type.Kind() == reflect.Map
+		var mapKeyType, mapValType, mapType reflect.Type
+		if isMapField {
+			mapKeyType = field.Type.Key()
+			mapValType = field.Type.Elem()
+			mapType = field.Type
+		}
+
 		absoluteOffset := baseOffset + field.Offset
 		fieldOffset := FieldOffset{
 			Name:      strings.Join(fieldPath, "."),
@@ -124,11 +139,16 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, parentPath []string
 			Size:      field.Type.Size(),
 			Primary:   isPrimary,
 			Unique:    isUnique,
+			Encrypted: isEncrypted,
 			Parent:    parentPath,
 			IsTime:    isTimeField,
 			IsSlice:   isSliceField,
 			IsBytes:   isBytesField,
 			SliceElem: sliceElem,
+			IsMap:     isMapField,
+			MapKeyType: mapKeyType,
+			MapValType: mapValType,
+			MapType:   mapType,
 		}
 
 		if field.Type.Kind() == reflect.Struct {
@@ -223,6 +243,8 @@ func GetFieldValue(data interface{}, offset FieldOffset) (interface{}, error) {
 			return GetTimeField(data, offset), nil
 		}
 		return nil, fmt.Errorf("unsupported struct field type: %v", offset.Type)
+	case reflect.Map:
+		return GetMapField(data, offset)
 	default:
 		return nil, fmt.Errorf("unsupported field type: %v", offset.Type)
 	}
@@ -389,6 +411,96 @@ func GetSliceOfStructs(data interface{}, offset FieldOffset) interface{} {
 	return val.Interface()
 }
 
+func setReflectValue(v reflect.Value, raw interface{}) error {
+	r := reflect.ValueOf(raw)
+	if !r.IsValid() {
+		return nil
+	}
+	if r.Type().AssignableTo(v.Type()) {
+		v.Set(r)
+		return nil
+	}
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if r.Kind() >= reflect.Int && r.Kind() <= reflect.Int64 {
+			v.SetInt(r.Int())
+			return nil
+		}
+		if r.Kind() >= reflect.Uint && r.Kind() <= reflect.Uint64 {
+			v.SetInt(int64(r.Uint()))
+			return nil
+		}
+		if r.Kind() == reflect.Float64 || r.Kind() == reflect.Float32 {
+			v.SetInt(int64(r.Float()))
+			return nil
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if r.Kind() >= reflect.Uint && r.Kind() <= reflect.Uint64 {
+			v.SetUint(r.Uint())
+			return nil
+		}
+		if r.Kind() >= reflect.Int && r.Kind() <= reflect.Int64 {
+			v.SetUint(uint64(r.Int()))
+			return nil
+		}
+		if r.Kind() == reflect.Float64 || r.Kind() == reflect.Float32 {
+			v.SetUint(uint64(r.Float()))
+			return nil
+		}
+	case reflect.Float32, reflect.Float64:
+		if r.Kind() == reflect.Float64 || r.Kind() == reflect.Float32 {
+			v.SetFloat(r.Float())
+			return nil
+		}
+		if r.Kind() >= reflect.Int && r.Kind() <= reflect.Int64 {
+			v.SetFloat(float64(r.Int()))
+			return nil
+		}
+		if r.Kind() >= reflect.Uint && r.Kind() <= reflect.Uint64 {
+			v.SetFloat(float64(r.Uint()))
+			return nil
+		}
+	case reflect.String:
+		v.SetString(fmt.Sprintf("%v", raw))
+	case reflect.Bool:
+		if r.Kind() == reflect.Bool {
+			v.SetBool(r.Bool())
+			return nil
+		}
+	default:
+		return fmt.Errorf("unsupported map value type: %v", v.Kind())
+	}
+	return nil
+}
+
+func GetMapField(data interface{}, offset FieldOffset) (map[string]interface{}, error) {
+	rootVal := reflect.ValueOf(data).Elem()
+	val := rootVal.FieldByName(offset.Name)
+	if len(offset.Parent) > 0 {
+		val = rootVal
+		for _, part := range offset.Parent {
+			val = val.FieldByName(part)
+			if !val.IsValid() {
+				return nil, fmt.Errorf("parent field not found: %v", part)
+			}
+		}
+		fieldParts := strings.Split(offset.Name, ".")
+		lastPart := fieldParts[len(fieldParts)-1]
+		val = val.FieldByName(lastPart)
+	}
+	if !val.IsValid() || val.IsNil() {
+		return nil, nil
+	}
+	result := make(map[string]interface{})
+	iter := val.MapRange()
+	for iter.Next() {
+		k := iter.Key()
+		v := iter.Value()
+		result[fmt.Sprintf("%v", k.Interface())] = v.Interface()
+	}
+	return result, nil
+}
+
 func GetBytesField(data interface{}, offset FieldOffset) ([]byte, error) {
 	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
 	fieldPtr := unsafe.Add(ptr, offset.Offset)
@@ -462,6 +574,13 @@ func GetFieldAsString(data interface{}, offset FieldOffset) string {
 		return ""
 	case reflect.Slice:
 		return ""
+	case reflect.Map:
+		m, err := GetMapField(data, offset)
+		if err != nil || m == nil {
+			return ""
+		}
+		b, _ := json.Marshal(m)
+		return string(b)
 	default:
 		return ""
 	}
@@ -901,6 +1020,27 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 		sliceHeader.Data = uintptr(unsafe.Pointer(&data[0]))
 		sliceHeader.Len = len(sliceVal)
 		sliceHeader.Cap = len(sliceVal)
+	case reflect.Map:
+		mapVal, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("cannot convert %T to map[string]interface{}", value)
+		}
+		targetMap := reflect.NewAt(offset.MapType, fieldPtr).Elem()
+		if len(mapVal) == 0 {
+			targetMap.Set(reflect.MakeMap(offset.MapType))
+			break
+		}
+		newMap := reflect.MakeMapWithSize(offset.MapType, len(mapVal))
+		keyType := offset.MapKeyType
+		valType := offset.MapValType
+		for k, v := range mapVal {
+			kv := reflect.New(keyType).Elem()
+			_ = setReflectValue(kv, k)
+			vv := reflect.New(valType).Elem()
+			_ = setReflectValue(vv, v)
+			newMap.SetMapIndex(kv, vv)
+		}
+		targetMap.Set(newMap)
 	default:
 		return fmt.Errorf("unsupported field type: %v", offset.Type)
 	}
