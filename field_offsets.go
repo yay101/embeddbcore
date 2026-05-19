@@ -11,24 +11,25 @@ import (
 )
 
 type FieldOffset struct {
-	Name        string
-	Offset      uintptr
-	Type        reflect.Kind
-	Size        uintptr
-	Primary     bool
-	Unique      bool
-	IsStruct    bool
-	StructType  reflect.Type
-	Parent      []string
-	IsTime      bool
-	IsSlice     bool
-	IsBytes     bool
-	SliceElem   reflect.Type
-	IsMap       bool
-	MapKeyType  reflect.Type
-	MapValType  reflect.Type
-	MapType     reflect.Type
-	Encrypted   bool
+	Name       string
+	Offset     uintptr
+	Type       reflect.Kind
+	Size       uintptr
+	Primary    bool
+	Unique     bool
+	Index      bool
+	Encrypted  bool
+	IsStruct   bool
+	StructType reflect.Type
+	Parent     []string
+	IsTime     bool
+	IsSlice    bool
+	IsBytes    bool
+	IsMap      bool
+	MapKeyType reflect.Type
+	MapValType reflect.Type
+	MapType    reflect.Type
+	SliceElem  reflect.Type
 }
 
 type StructLayout struct {
@@ -76,6 +77,10 @@ func ComputeSchemaHash(fields []FieldOffset) uint32 {
 		h *= 0x01000193
 		h ^= uint32(f.Type)
 		h *= 0x01000193
+		if f.Encrypted {
+			h ^= 0x45
+			h *= 0x01000193
+		}
 	}
 	return h
 }
@@ -109,7 +114,12 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, parentPath []string
 		}
 
 		isUnique := strings.Contains(dbTag, "unique")
+		isIndex := strings.Contains(dbTag, "index")
 		isEncrypted := strings.Contains(dbTag, "encrypt")
+
+		if isEncrypted && isIndex {
+			continue
+		}
 
 		isTimeField := field.Type.PkgPath() == "time" && field.Type.Name() == "Time"
 
@@ -139,6 +149,7 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, parentPath []string
 			Size:      field.Type.Size(),
 			Primary:   isPrimary,
 			Unique:    isUnique,
+			Index:     isIndex,
 			Encrypted: isEncrypted,
 			Parent:    parentPath,
 			IsTime:    isTimeField,
