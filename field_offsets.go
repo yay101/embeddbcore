@@ -40,6 +40,16 @@ type StructLayout struct {
 	PKType        reflect.Kind
 }
 
+func trimTagPart(s string) string {
+	for len(s) > 0 && s[0] == ' ' {
+		s = s[1:]
+	}
+	for len(s) > 0 && s[len(s)-1] == ' ' {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
 func ComputeStructLayout(data interface{}) (*StructLayout, error) {
 	t := reflect.TypeOf(data)
 	if t.Kind() == reflect.Ptr {
@@ -51,6 +61,7 @@ func ComputeStructLayout(data interface{}) (*StructLayout, error) {
 
 	layout := &StructLayout{
 		PKType: 0,
+		Fields: make([]FieldOffset, 0, t.NumField()),
 	}
 
 	computeFieldOffsets(t, 0, []string{}, layout)
@@ -93,12 +104,15 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, parentPath []string
 			continue
 		}
 
-		fieldPath := append([]string{}, parentPath...)
-
 		isAnonymous := field.Anonymous
 
-		if !isAnonymous {
-			fieldPath = append(fieldPath, field.Name)
+		var fieldPath []string
+		if isAnonymous {
+			fieldPath = parentPath
+		} else {
+			fieldPath = make([]string, len(parentPath)+1)
+			copy(fieldPath, parentPath)
+			fieldPath[len(parentPath)] = field.Name
 		}
 
 		dbTag := field.Tag.Get("db")
@@ -107,15 +121,35 @@ func computeFieldOffsets(t reflect.Type, baseOffset uintptr, parentPath []string
 			continue
 		}
 
-		isPrimary := strings.Contains(dbTag, "id") || strings.Contains(dbTag, "primary")
-		if isPrimary && layout.PrimaryKey == "" {
-			layout.PrimaryKey = strings.Join(fieldPath, ".")
-			layout.PKType = field.Type.Kind()
+		var isPrimary, isUnique, isIndex, isEncrypted bool
+		if dbTag != "" {
+			rest := dbTag
+			for rest != "" {
+				idx := strings.IndexByte(rest, ',')
+				var part string
+				if idx >= 0 {
+					part = trimTagPart(rest[:idx])
+					rest = rest[idx+1:]
+				} else {
+					part = trimTagPart(rest)
+					rest = ""
+				}
+				switch part {
+				case "id", "primary":
+					if !isPrimary && layout.PrimaryKey == "" {
+						isPrimary = true
+						layout.PrimaryKey = strings.Join(fieldPath, ".")
+						layout.PKType = field.Type.Kind()
+					}
+				case "unique":
+					isUnique = true
+				case "index":
+					isIndex = true
+				case "encrypt":
+					isEncrypted = true
+				}
+			}
 		}
-
-		isUnique := strings.Contains(dbTag, "unique")
-		isIndex := strings.Contains(dbTag, "index")
-		isEncrypted := strings.Contains(dbTag, "encrypt")
 
 		if isEncrypted && isIndex {
 			continue
@@ -422,68 +456,6 @@ func GetSliceOfStructs(data interface{}, offset FieldOffset) interface{} {
 	return val.Interface()
 }
 
-func setReflectValue(v reflect.Value, raw interface{}) error {
-	r := reflect.ValueOf(raw)
-	if !r.IsValid() {
-		return nil
-	}
-	if r.Type().AssignableTo(v.Type()) {
-		v.Set(r)
-		return nil
-	}
-	switch v.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if r.Kind() >= reflect.Int && r.Kind() <= reflect.Int64 {
-			v.SetInt(r.Int())
-			return nil
-		}
-		if r.Kind() >= reflect.Uint && r.Kind() <= reflect.Uint64 {
-			v.SetInt(int64(r.Uint()))
-			return nil
-		}
-		if r.Kind() == reflect.Float64 || r.Kind() == reflect.Float32 {
-			v.SetInt(int64(r.Float()))
-			return nil
-		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if r.Kind() >= reflect.Uint && r.Kind() <= reflect.Uint64 {
-			v.SetUint(r.Uint())
-			return nil
-		}
-		if r.Kind() >= reflect.Int && r.Kind() <= reflect.Int64 {
-			v.SetUint(uint64(r.Int()))
-			return nil
-		}
-		if r.Kind() == reflect.Float64 || r.Kind() == reflect.Float32 {
-			v.SetUint(uint64(r.Float()))
-			return nil
-		}
-	case reflect.Float32, reflect.Float64:
-		if r.Kind() == reflect.Float64 || r.Kind() == reflect.Float32 {
-			v.SetFloat(r.Float())
-			return nil
-		}
-		if r.Kind() >= reflect.Int && r.Kind() <= reflect.Int64 {
-			v.SetFloat(float64(r.Int()))
-			return nil
-		}
-		if r.Kind() >= reflect.Uint && r.Kind() <= reflect.Uint64 {
-			v.SetFloat(float64(r.Uint()))
-			return nil
-		}
-	case reflect.String:
-		v.SetString(fmt.Sprintf("%v", raw))
-	case reflect.Bool:
-		if r.Kind() == reflect.Bool {
-			v.SetBool(r.Bool())
-			return nil
-		}
-	default:
-		return fmt.Errorf("unsupported map value type: %v", v.Kind())
-	}
-	return nil
-}
-
 func GetMapField(data interface{}, offset FieldOffset) (map[string]interface{}, error) {
 	rootVal := reflect.ValueOf(data).Elem()
 	val := rootVal.FieldByName(offset.Name)
@@ -507,7 +479,11 @@ func GetMapField(data interface{}, offset FieldOffset) (map[string]interface{}, 
 	for iter.Next() {
 		k := iter.Key()
 		v := iter.Value()
-		result[fmt.Sprintf("%v", k.Interface())] = v.Interface()
+		if k.Kind() == reflect.String {
+			result[k.String()] = v.Interface()
+		} else {
+			result[fmt.Sprintf("%v", k.Interface())] = v.Interface()
+		}
 	}
 	return result, nil
 }
@@ -523,7 +499,7 @@ func GetBytesField(data interface{}, offset FieldOffset) ([]byte, error) {
 
 	bytesPtr := unsafe.Pointer(sliceHeader.Data)
 	bytes := make([]byte, sliceHeader.Len)
-	copy(bytes, (*[8192]byte)(bytesPtr)[:sliceHeader.Len])
+	copy(bytes, unsafe.Slice((*byte)(bytesPtr), sliceHeader.Len))
 	return bytes, nil
 }
 
@@ -1032,26 +1008,16 @@ func SetFieldValue(data interface{}, offset FieldOffset, value interface{}) erro
 		sliceHeader.Len = len(sliceVal)
 		sliceHeader.Cap = len(sliceVal)
 	case reflect.Map:
-		mapVal, ok := value.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("cannot convert %T to map[string]interface{}", value)
+		rv := reflect.ValueOf(value)
+		if rv.Kind() != reflect.Map {
+			return fmt.Errorf("cannot convert %T to map", value)
 		}
 		targetMap := reflect.NewAt(offset.MapType, fieldPtr).Elem()
-		if len(mapVal) == 0 {
+		if rv.Len() == 0 {
 			targetMap.Set(reflect.MakeMap(offset.MapType))
 			break
 		}
-		newMap := reflect.MakeMapWithSize(offset.MapType, len(mapVal))
-		keyType := offset.MapKeyType
-		valType := offset.MapValType
-		for k, v := range mapVal {
-			kv := reflect.New(keyType).Elem()
-			_ = setReflectValue(kv, k)
-			vv := reflect.New(valType).Elem()
-			_ = setReflectValue(vv, v)
-			newMap.SetMapIndex(kv, vv)
-		}
-		targetMap.Set(newMap)
+		targetMap.Set(rv)
 	default:
 		return fmt.Errorf("unsupported field type: %v", offset.Type)
 	}
