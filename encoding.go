@@ -196,6 +196,31 @@ func DecodeFloat64(data []byte) (float64, []byte, error) {
 	return math.Float64frombits(bits), data[8:], nil
 }
 
+func EncodeFloat32(buffer []byte, value float32) []byte {
+	bits := math.Float32bits(value)
+	if bits&(1<<31) != 0 {
+		bits = ^bits
+	} else {
+		bits |= (1 << 31)
+	}
+	var tmp [4]byte
+	binary.BigEndian.PutUint32(tmp[:], bits)
+	return append(buffer, tmp[:]...)
+}
+
+func DecodeFloat32(data []byte) (float32, []byte, error) {
+	if len(data) < 4 {
+		return 0, data, ErrTruncatedField
+	}
+	bits := binary.BigEndian.Uint32(data[:4])
+	if bits&(1<<31) != 0 {
+		bits = bits & ^(uint32(1) << 31)
+	} else {
+		bits = ^bits
+	}
+	return math.Float32frombits(bits), data[4:], nil
+}
+
 func EncodeTime(buffer []byte, unixNano int64) []byte {
 	return EncodeInt64(buffer, unixNano)
 }
