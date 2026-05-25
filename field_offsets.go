@@ -436,56 +436,24 @@ func GetBoolSlice(data interface{}, offset FieldOffset) []bool {
 }
 
 func GetSliceOfStructs(data interface{}, offset FieldOffset) interface{} {
-	rootVal := reflect.ValueOf(data).Elem()
-	val := rootVal.FieldByName(offset.Name)
-	if len(offset.Parent) > 0 {
-		val = rootVal
-		for _, part := range offset.Parent {
-			val = val.FieldByName(part)
-			if !val.IsValid() {
-				return nil
-			}
-		}
-		fieldParts := strings.Split(offset.Name, ".")
-		lastPart := fieldParts[len(fieldParts)-1]
-		val = val.FieldByName(lastPart)
-	}
-	if !val.IsValid() || val.IsNil() {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	fieldPtr := unsafe.Add(ptr, offset.Offset)
+	sliceType := reflect.SliceOf(offset.SliceElem)
+	rv := reflect.NewAt(sliceType, fieldPtr).Elem()
+	if rv.IsNil() {
 		return nil
 	}
-	return val.Interface()
+	return rv.Interface()
 }
 
-func GetMapField(data interface{}, offset FieldOffset) (map[string]interface{}, error) {
-	rootVal := reflect.ValueOf(data).Elem()
-	val := rootVal.FieldByName(offset.Name)
-	if len(offset.Parent) > 0 {
-		val = rootVal
-		for _, part := range offset.Parent {
-			val = val.FieldByName(part)
-			if !val.IsValid() {
-				return nil, fmt.Errorf("parent field not found: %v", part)
-			}
-		}
-		fieldParts := strings.Split(offset.Name, ".")
-		lastPart := fieldParts[len(fieldParts)-1]
-		val = val.FieldByName(lastPart)
-	}
-	if !val.IsValid() || val.IsNil() {
+func GetMapField(data interface{}, offset FieldOffset) (interface{}, error) {
+	ptr := unsafe.Pointer(reflect.ValueOf(data).Pointer())
+	fieldPtr := unsafe.Add(ptr, offset.Offset)
+	targetMap := reflect.NewAt(offset.MapType, fieldPtr).Elem()
+	if targetMap.IsNil() {
 		return nil, nil
 	}
-	result := make(map[string]interface{})
-	iter := val.MapRange()
-	for iter.Next() {
-		k := iter.Key()
-		v := iter.Value()
-		if k.Kind() == reflect.String {
-			result[k.String()] = v.Interface()
-		} else {
-			result[fmt.Sprintf("%v", k.Interface())] = v.Interface()
-		}
-	}
-	return result, nil
+	return targetMap.Interface(), nil
 }
 
 func GetBytesField(data interface{}, offset FieldOffset) ([]byte, error) {
